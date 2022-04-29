@@ -1,10 +1,12 @@
-using UnityEditor;
+﻿using UnityEditor;
 using UnityEngine;
 using UnityEditor.IMGUI.Controls;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.Serialization.Formatters.Binary;
 using System.Linq;
+using System.Collections;
+using System.Threading.Tasks;
 
 namespace AssetBundleBrowser
 {
@@ -15,9 +17,9 @@ namespace AssetBundleBrowser
 
         [SerializeField]
         private InspectTabData m_Data;
-        
 
-        private Dictionary<string, List<string> > m_BundleList;
+
+        private Dictionary<string, List<string>> m_BundleList;
         private InspectBundleTree m_BundleTreeView;
         [SerializeField]
         private TreeViewState m_BundleTreeState;
@@ -126,7 +128,7 @@ namespace AssetBundleBrowser
             }
         }
 
-        private void OnGUIEditor()
+        private async void OnGUIEditor()
         {
             EditorGUILayout.Space();
             GUILayout.BeginHorizontal();
@@ -139,6 +141,16 @@ namespace AssetBundleBrowser
             {
                 BrowseForFolder();
             }
+            if (_selectedBundle != null)
+                if (GUILayout.Button("EXPORT", GUILayout.MaxWidth(75f)))
+                {
+                    ExportAssets();
+                }
+            if (_secondSelectedBundle != null)
+                if (GUILayout.Button("COMPARE", GUILayout.MaxWidth(75f)))
+                {
+                    CompareAssets();
+                }
 
             GUILayout.EndHorizontal();
             EditorGUILayout.Space();
@@ -159,9 +171,9 @@ namespace AssetBundleBrowser
         internal void RemoveBundleFolder(string pathToRemove)
         {
             List<string> paths = null;
-            if(m_BundleList.TryGetValue(pathToRemove, out paths))
+            if (m_BundleList.TryGetValue(pathToRemove, out paths))
             {
-                foreach(var p in paths)
+                foreach (var p in paths)
                 {
                     UnloadBundle(p);
                 }
@@ -188,7 +200,7 @@ namespace AssetBundleBrowser
         //TODO - this is largely copied from BuildTab, should maybe be shared code.
         private void BrowseForFolder(string folderPath = null)
         {
-           folderPath = EditorUtility.OpenFolderPanel("Bundle Folder", string.Empty, string.Empty);
+            folderPath = EditorUtility.OpenFolderPanel("Bundle Folder", string.Empty, string.Empty);
             if (!string.IsNullOrEmpty(folderPath))
             {
                 var gamePath = System.IO.Path.GetFullPath(".");//TODO - FileUtil.GetProjectRelativePath??
@@ -237,9 +249,9 @@ namespace AssetBundleBrowser
 
             m_BundleList.Clear();
             var pathsToRemove = new List<string>();
-            foreach(var filePath in m_Data.BundlePaths)
+            foreach (var filePath in m_Data.BundlePaths)
             {
-                if(File.Exists(filePath))
+                if (File.Exists(filePath))
                 {
                     AddBundleToList(string.Empty, filePath);
                 }
@@ -249,15 +261,15 @@ namespace AssetBundleBrowser
                     pathsToRemove.Add(filePath);
                 }
             }
-            foreach(var path in pathsToRemove)
+            foreach (var path in pathsToRemove)
             {
                 m_Data.RemovePath(path);
             }
             pathsToRemove.Clear();
 
-            foreach(var folder in m_Data.BundleFolders)
+            foreach (var folder in m_Data.BundleFolders)
             {
-                if(Directory.Exists(folder.path))
+                if (Directory.Exists(folder.path))
                 {
                     AddFilePathToList(folder.path, folder.path);
                 }
@@ -280,7 +292,7 @@ namespace AssetBundleBrowser
             List<string> bundles = null;
             m_BundleList.TryGetValue(parent, out bundles);
 
-            if(bundles == null)
+            if (bundles == null)
             {
                 bundles = new List<string>();
                 m_BundleList.Add(parent, bundles);
@@ -293,7 +305,7 @@ namespace AssetBundleBrowser
             foreach (var file in Directory.GetFiles(path))
             {
                 var ext = Path.GetExtension(file);
-                if(!notAllowedExtensions.Contains(ext))
+                if (!notAllowedExtensions.Contains(ext))
                 {
                     var f = file.Replace('\\', '/');
                     if (File.Exists(file) && !m_Data.FolderIgnoresFile(rootPath, f))
@@ -313,21 +325,38 @@ namespace AssetBundleBrowser
         { get { return m_BundleList; } }
 
 
+        private AssetBundle _selectedBundle;
+        private AssetBundle _secondSelectedBundle;
         internal void SetBundleItem(IList<InspectTreeItem> selected)
         {
             //m_SelectedBundleTreeItems = selected;
             if (selected == null || selected.Count == 0 || selected[0] == null)
             {
                 m_SingleInspector.SetBundle(null);
+                _selectedBundle = null;
             }
-            else if(selected.Count == 1)
+            else if (selected.Count == 1)
             {
                 AssetBundle bundle = LoadBundle(selected[0].bundlePath);
+                bundle.name = Path.GetFileName(selected[0].bundlePath);
                 m_SingleInspector.SetBundle(bundle, selected[0].bundlePath, m_Data, this);
+                _selectedBundle = bundle;
+            }
+            else if (selected.Count == 2)
+            {
+                AssetBundle bundle = LoadBundle(selected[0].bundlePath);
+                bundle.name = Path.GetFileName(selected[0].bundlePath);
+                _selectedBundle = bundle;
+                m_SingleInspector.SetBundle(null);
+
+                bundle = LoadBundle(selected[1].bundlePath);
+                bundle.name = Path.GetFileName(selected[1].bundlePath);
+                _secondSelectedBundle = bundle;
             }
             else
             {
-                m_SingleInspector.SetBundle(null);
+                _selectedBundle = null;
+                _secondSelectedBundle = null;
 
                 //perhaps there should be a way to set a message in the inspector, to tell it...
                 //var style = GUI.skin.label;
@@ -356,7 +385,7 @@ namespace AssetBundleBrowser
                 if (!m_BundlePaths.Contains(newPath))
                 {
                     var possibleFolderData = FolderDataContainingFilePath(newPath);
-                    if(possibleFolderData == null)
+                    if (possibleFolderData == null)
                     {
                         m_BundlePaths.Add(newPath);
                     }
@@ -405,9 +434,9 @@ namespace AssetBundleBrowser
 
             private bool BundleFolderContains(string folderPath)
             {
-                foreach(var bundleFolderData in BundleFolders)
+                foreach (var bundleFolderData in BundleFolders)
                 {
-                    if(Path.GetFullPath(bundleFolderData.path) == Path.GetFullPath(folderPath))
+                    if (Path.GetFullPath(bundleFolderData.path) == Path.GetFullPath(folderPath))
                     {
                         return true;
                     }
@@ -472,7 +501,7 @@ namespace AssetBundleBrowser
                     bundle = record.bundle;
                 }
             }
-                
+
             if (null == bundle)
             {
                 // Load the bundle
@@ -509,6 +538,165 @@ namespace AssetBundleBrowser
 
             record.bundle.Unload(true);
             m_loadedAssetBundles.Remove(bundleName);
+        }
+
+
+        /// <summary>
+        /// 
+        /// </summary>
+        private void ExportAssetsToPrefab()
+        {
+            var objectArray = _selectedBundle.LoadAllAssets();
+            Debug.Log(objectArray.Length);
+            string exportFolder = Path.Combine("Assets", "EXPORT");
+            if (!Directory.Exists(exportFolder)) Directory.CreateDirectory(exportFolder);
+            Debug.Log($"EXPORT to {exportFolder}");
+            var log = "";
+            foreach (var item in objectArray)
+            {
+                if (item is Sprite)
+                {
+                    GameObject newSprite = new GameObject(item.name);
+                    var sr = newSprite.AddComponent<SpriteRenderer>();
+                    sr.sprite = (Sprite)item;
+                    var localPath = Path.Combine(exportFolder, item.name + ".prefab");
+                    localPath = AssetDatabase.GenerateUniqueAssetPath(localPath);
+
+                    bool prefabSuccess;
+                    PrefabUtility.SaveAsPrefabAsset(newSprite, localPath, out prefabSuccess);
+
+                    log += $"Prefab {item.name}.prefab" + (prefabSuccess ? " was saved\n" : " failed to save\n");
+                    break;
+                }
+            }
+
+            Debug.Log(log);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        private void ExportAssets()
+        {
+            var objectArray = _selectedBundle.LoadAllAssets<Texture2D>();
+            var spriteArray = _selectedBundle.LoadAllAssets<Sprite>();
+            var objectPaths = new List<string>();
+            foreach (var item in objectArray)
+            {
+                var texture = duplicateTexture(item);
+                var path = writeToFileAsPNG(texture, _selectedBundle.name);
+                objectPaths.Add(path);
+            }
+            //AssetDatabase.ForceReserializeAssets(objectPaths);
+
+            foreach (var path in objectPaths)
+            {
+                var name = Path.GetFileNameWithoutExtension(path);
+                var origin = _selectedBundle.LoadAsset<Texture2D>(name);
+                if (File.Exists(path))
+                {
+                    AssetDatabase.ImportAsset(path, ImportAssetOptions.ForceUpdate);
+                    var source = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                    TextureImporter importer = (TextureImporter)TextureImporter.GetAtPath(path);
+                    importer.SetAssetBundleNameAndVariant(_selectedBundle.name, "");
+                    importer.alphaIsTransparency = origin.alphaIsTransparency;
+                    importer.textureFormat = (TextureImporterFormat)origin.format;
+
+                    var sprites = new List<Sprite>();
+                    foreach (var item in spriteArray)
+                    {
+                        if (item.texture.name == name)
+                        {
+                            sprites.Add(item);
+                        }
+                    }
+                    if (sprites.Count > 1)
+                    {
+                        ExtractAtlases(sprites, importer);
+                    }
+                    importer.SaveAndReimport();
+                }
+            }
+
+            //ExtractAtlases();
+
+        }
+
+        void ExtractAtlases(List<Sprite> sprites, TextureImporter importer)
+        {
+            var spritesMetadata = new List<SpriteMetaData>();
+            foreach (var item in sprites)
+            {
+                SpriteMetaData metadata = new SpriteMetaData();
+                metadata.name = item.name;
+                metadata.pivot = item.pivot;
+                metadata.rect = item.rect;
+                spritesMetadata.Add(metadata);
+            }
+            importer.spriteImportMode = SpriteImportMode.Multiple;
+            importer.spritesheet = spritesMetadata.ToArray();
+        }
+
+        string writeToFileAsPNG(Texture2D texture, string assetBundleName)
+        {
+            //then Save To Disk as PNG
+            byte[] bytes = texture.EncodeToPNG();
+            string exportFolder = Path.Combine("Assets", "EXPORT", assetBundleName);
+            if (!Directory.Exists(exportFolder))
+            {
+                Directory.CreateDirectory(exportFolder);
+            }
+            string path = Path.Combine(exportFolder, texture.name + ".png");
+            File.WriteAllBytes(path, bytes);
+            return path;
+
+        }
+
+        Texture2D duplicateTexture(Texture2D source)
+        {
+            RenderTexture renderTex = RenderTexture.GetTemporary(
+                        source.width,
+                        source.height,
+                        0,
+                        RenderTextureFormat.Default,
+                        RenderTextureReadWrite.Linear);
+
+            Graphics.Blit(source, renderTex);
+            RenderTexture previous = RenderTexture.active;
+            RenderTexture.active = renderTex;
+            Texture2D readableText = new Texture2D(source.width, source.height);
+            readableText.ReadPixels(new Rect(0, 0, renderTex.width, renderTex.height), 0, 0);
+            readableText.Apply();
+            readableText.name = source.name;
+            RenderTexture.active = previous;
+            RenderTexture.ReleaseTemporary(renderTex);
+            return readableText;
+        }
+
+        void CompareAssets()
+        {
+            var objects = _selectedBundle.LoadAllAssets<Texture2D>();
+            var secondObjects = _secondSelectedBundle.LoadAllAssets<Texture2D>();
+            if (objects.Length != secondObjects.Length)
+            {
+                var names = new List<string>();
+                foreach (var item in objects)
+                {
+                    names.Add(item.name);
+                }
+                foreach (var item in secondObjects)
+                {
+                    names.Remove(item.name);
+                }
+                foreach (var item in names)
+                {
+                    Debug.Log(item);
+                }
+            }
+            else
+            {
+                Debug.Log("EQUAL NUMBER OF OBJECTS");
+            }
         }
     }
 }
